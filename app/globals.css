@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #0a0a0a;
+  --color-surface: rgba(255, 255, 255, 0.03);
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-accent: #f97316;
+  --color-accent-muted: rgba(249, 115, 22, 0.1);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@utility glass {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+@utility glow-accent {
+  box-shadow: 0 0 20px rgba(249, 115, 22, 0.2);
+}
+
+@utility glow-accent-sm {
+  box-shadow: 0 0 10px rgba(249, 115, 22, 0.12);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background: #0a0a0a;
+}
+
+body {
+  background: #0a0a0a;
+  color: #fff;
+  min-height: 100dvh;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+*:focus-visible {
+  outline: 1px solid rgba(249, 115, 22, 0.6);
+  outline-offset: 2px;
+}
+
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) opacity(0.5);
+  cursor: pointer;
+}
