@@ -1,34 +1,102 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { createClient } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Input, Textarea } from "@/components/ui/input"
-import { SPLIT_LABELS, type SplitDay, type ExerciseSet } from "@/types/database"
+import { SPLIT_LABELS, SPLIT_EXERCISES, type SplitDay, type ExerciseSet, type WorkoutExercise } from "@/types/database"
 import { today } from "@/lib/utils"
-import { Plus, Trash2, X } from "lucide-react"
+import { Plus, Trash2, X, RotateCcw } from "lucide-react"
 
 interface ExerciseDraft {
   name: string
   sets: ExerciseSet[]
 }
 
+interface EditWorkout {
+  id: string
+  date: string
+  split_day: SplitDay
+  notes: string | null
+  exercises: WorkoutExercise[]
+}
+
 interface Props {
   onSaved: () => void
   onCancel: () => void
+  editWorkout?: EditWorkout
 }
 
-export function WorkoutForm({ onSaved, onCancel }: Props) {
-  const [date, setDate] = useState(today())
-  const [splitDay, setSplitDay] = useState<SplitDay>("bicep_tricep")
-  const [notes, setNotes] = useState("")
-  const [exercises, setExercises] = useState<ExerciseDraft[]>([
-    { name: "", sets: [{ reps: 0, weight: 0 }] },
-  ])
+export function WorkoutForm({ onSaved, onCancel, editWorkout }: Props) {
+  const [date, setDate] = useState(editWorkout?.date ?? today())
+  const [splitDay, setSplitDay] = useState<SplitDay>(editWorkout?.split_day ?? "bicep_tricep")
+  const [notes, setNotes] = useState(editWorkout?.notes ?? "")
+  const [exercises, setExercises] = useState<ExerciseDraft[]>(
+    editWorkout
+      ? editWorkout.exercises.map((e) => ({
+          name: e.exercise_name,
+          sets: e.sets.map((s) => ({ reps: s.reps, weight: s.weight })),
+        }))
+      : []
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [loadingTemplate, setLoadingTemplate] = useState(!editWorkout)
+  const [lastWorkoutDate, setLastWorkoutDate] = useState<string | null>(null)
 
   const supabase = createClient()
+
+  const loadTemplate = useCallback(async (split: SplitDay) => {
+    setLoadingTemplate(true)
+    setLastWorkoutDate(null)
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      setLoadingTemplate(false)
+      return
+    }
+
+    const { data: lastWorkout } = await supabase
+      .from("workouts")
+      .select("id, date")
+      .eq("user_id", user.id)
+      .eq("split_day", split)
+      .order("date", { ascending: false })
+      .limit(1)
+      .single()
+
+    if (lastWorkout) {
+      const { data: lastExercises } = await supabase
+        .from("workout_exercises")
+        .select("exercise_name, sets")
+        .eq("workout_id", lastWorkout.id)
+        .order("order_index")
+
+      if (lastExercises && lastExercises.length > 0) {
+        setExercises(lastExercises.map((e) => ({
+          name: e.exercise_name,
+          sets: (e.sets as ExerciseSet[]).map((s) => ({ reps: s.reps, weight: s.weight })),
+        })))
+        setLastWorkoutDate(lastWorkout.date)
+        setLoadingTemplate(false)
+        return
+      }
+    }
+
+    setExercises(
+      SPLIT_EXERCISES[split].map((name) => ({
+        name,
+        sets: [{ reps: 0, weight: 0 }, { reps: 0, weight: 0 }, { reps: 0, weight: 0 }],
+      }))
+    )
+    setLoadingTemplate(false)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!editWorkout) {
+      loadTemplate(splitDay)
+    }
+  }, [splitDay]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const addExercise = () =>
     setExercises((ex) => [...ex, { name: "", sets: [{ reps: 0, weight: 0 }] }])
@@ -53,21 +121,11 @@ export function WorkoutForm({ onSaved, onCancel }: Props) {
   const updateExerciseName = (i: number, name: string) =>
     setExercises((ex) => ex.map((e, idx) => (idx === i ? { ...e, name } : e)))
 
-  const updateSet = (
-    ei: number,
-    si: number,
-    field: keyof ExerciseSet,
-    val: number
-  ) =>
+  const updateSet = (ei: number, si: number, field: keyof ExerciseSet, val: number) =>
     setExercises((ex) =>
       ex.map((e, idx) =>
         idx === ei
-          ? {
-              ...e,
-              sets: e.sets.map((s, sidx) =>
-                sidx === si ? { ...s, [field]: val } : s
-              ),
-            }
+          ? { ...e, sets: e.sets.map((s, sidx) => (sidx === si ? { ...s, [field]: val } : s)) }
           : e
       )
     )
@@ -80,31 +138,53 @@ export function WorkoutForm({ onSaved, onCancel }: Props) {
     setSaving(true)
     setError("")
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data: workout, error: wErr } = await supabase
-      .from("workouts")
-      .insert({
-        user_id: user.id,
-        date,
-        split_day: splitDay,
-        notes: notes || null,
-        social_media_minutes_earned: 45,
-      })
-      .select()
-      .single()
-
-    if (wErr || !workout) {
-      setError("Opslaan mislukt")
-      setSaving(false)
-      return
-    }
-
     const validExercises = exercises.filter((e) => e.name.trim())
-    if (validExercises.length > 0) {
+
+    if (editWorkout) {
+      // Update existing workout
+      const { error: wErr } = await supabase
+        .from("workouts")
+        .update({ date, split_day: splitDay, notes: notes || null })
+        .eq("id", editWorkout.id)
+
+      if (wErr) {
+        setError("Opslaan mislukt")
+        setSaving(false)
+        return
+      }
+
+      await supabase.from("workout_exercises").delete().eq("workout_id", editWorkout.id)
+      await supabase.from("workout_exercises").insert(
+        validExercises.map((e, i) => ({
+          workout_id: editWorkout.id,
+          exercise_name: e.name.trim(),
+          sets: e.sets,
+          order_index: i,
+        }))
+      )
+    } else {
+      // Insert new workout
+      const { data: workout, error: wErr } = await supabase
+        .from("workouts")
+        .insert({
+          user_id: user.id,
+          date,
+          split_day: splitDay,
+          notes: notes || null,
+          social_media_minutes_earned: 45,
+        })
+        .select()
+        .single()
+
+      if (wErr || !workout) {
+        setError("Opslaan mislukt")
+        setSaving(false)
+        return
+      }
+
       await supabase.from("workout_exercises").insert(
         validExercises.map((e, i) => ({
           workout_id: workout.id,
@@ -113,16 +193,16 @@ export function WorkoutForm({ onSaved, onCancel }: Props) {
           order_index: i,
         }))
       )
-    }
 
-    await supabase.from("social_media_transactions").insert({
-      user_id: user.id,
-      date,
-      source: "workout",
-      source_ref_id: workout.id,
-      minutes: 45,
-      description: `Workout: ${SPLIT_LABELS[splitDay]}`,
-    })
+      await supabase.from("social_media_transactions").insert({
+        user_id: user.id,
+        date,
+        source: "workout",
+        source_ref_id: workout.id,
+        minutes: 45,
+        description: `Workout: ${SPLIT_LABELS[splitDay]}`,
+      })
+    }
 
     setSaving(false)
     onSaved()
@@ -153,16 +233,41 @@ export function WorkoutForm({ onSaved, onCancel }: Props) {
 
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className="text-xs text-neutral-400">Oefeningen</label>
-          <button
-            onClick={addExercise}
-            className="text-xs text-orange-400 hover:text-orange-300 flex items-center gap-1 transition-colors"
-          >
-            <Plus size={12} /> Oefening
-          </button>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-neutral-400">Oefeningen</label>
+            {lastWorkoutDate && (
+              <span className="text-[10px] text-neutral-600">
+                ingeladen van {new Date(lastWorkoutDate).toLocaleDateString("nl-NL", { day: "numeric", month: "short" })}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            {!editWorkout && (
+              <button
+                onClick={() => loadTemplate(splitDay)}
+                className="text-[11px] text-neutral-600 hover:text-neutral-400 flex items-center gap-1 transition-colors"
+                title="Opnieuw laden"
+              >
+                <RotateCcw size={11} />
+              </button>
+            )}
+            <button
+              onClick={addExercise}
+              className="text-xs text-orange-400 hover:text-orange-300 flex items-center gap-1 transition-colors"
+            >
+              <Plus size={12} /> Oefening
+            </button>
+          </div>
         </div>
         <div className="space-y-3">
-          {exercises.map((ex, ei) => (
+          {loadingTemplate && (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-20 rounded-xl bg-white/[0.02] animate-pulse" />
+              ))}
+            </div>
+          )}
+          {!loadingTemplate && exercises.map((ex, ei) => (
             <div
               key={ei}
               className="rounded-xl border border-white/[0.07] bg-white/[0.02] p-3 space-y-2"
@@ -191,27 +296,22 @@ export function WorkoutForm({ onSaved, onCancel }: Props) {
                     </span>
                     <Input
                       type="number"
-                      placeholder="Reps"
-                      value={set.reps || ""}
-                      onChange={(e) =>
-                        updateSet(ei, si, "reps", Number(e.target.value))
-                      }
-                      className="flex-1 text-center"
-                      min={0}
-                    />
-                    <span className="text-neutral-600 text-xs">×</span>
-                    <Input
-                      type="number"
                       placeholder="kg"
                       value={set.weight || ""}
-                      onChange={(e) =>
-                        updateSet(ei, si, "weight", Number(e.target.value))
-                      }
+                      onChange={(e) => updateSet(ei, si, "weight", Number(e.target.value))}
                       className="flex-1 text-center"
                       min={0}
                       step={0.5}
                     />
-                    <span className="text-[10px] text-neutral-600">kg</span>
+                    <span className="text-[10px] text-neutral-600">kg ×</span>
+                    <Input
+                      type="number"
+                      placeholder="Reps"
+                      value={set.reps || ""}
+                      onChange={(e) => updateSet(ei, si, "reps", Number(e.target.value))}
+                      className="flex-1 text-center"
+                      min={0}
+                    />
                     {ex.sets.length > 1 && (
                       <button
                         onClick={() => removeSet(ei, si)}
@@ -253,7 +353,7 @@ export function WorkoutForm({ onSaved, onCancel }: Props) {
           Annuleren
         </Button>
         <Button onClick={handleSave} disabled={saving} className="flex-1">
-          {saving ? "Opslaan..." : "Opslaan +45 min"}
+          {saving ? "Opslaan..." : editWorkout ? "Opslaan" : "Opslaan +45 min"}
         </Button>
       </div>
     </div>

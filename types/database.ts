@@ -11,6 +11,38 @@ export const SPLIT_LABELS: Record<SplitDay, string> = {
   schouders_abs: "Schouders / Abs",
 }
 
+export const SPLIT_EXERCISES: Record<SplitDay, string[]> = {
+  bicep_tricep: [
+    "Hammer curl",
+    "Been curl",
+    "Cable curl",
+    "Overhead extension",
+    "Tricep pushdown",
+  ],
+  rug_borst: [
+    "Chest press",
+    "Cable fly",
+    "Pec fly",
+    "Pulldown",
+    "Row",
+    "Bank",
+  ],
+  benen_onderarmen: [
+    "Leg press",
+    "Leg extension",
+    "Leg curl",
+    "Forearms curl inside",
+    "Forearms curl outside",
+  ],
+  schouders_abs: [
+    "Ab curl",
+    "Ab spin",
+    "Shoulder press",
+    "Shoulder fly",
+    "Cable lateral raise",
+  ],
+}
+
 export interface ExerciseSet {
   reps: number
   weight: number

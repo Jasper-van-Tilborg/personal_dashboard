@@ -9,20 +9,22 @@ export async function GET() {
   }
 
   const apiKey = process.env.OPENWEATHER_API_KEY
-  const city = process.env.NEXT_PUBLIC_WEATHER_CITY ?? "Tilburg"
-  const country = process.env.NEXT_PUBLIC_WEATHER_COUNTRY ?? "NL"
+  const lat = process.env.NEXT_PUBLIC_WEATHER_LAT ?? "51.557"
+  const lon = process.env.NEXT_PUBLIC_WEATHER_LON ?? "4.933"
 
   if (!apiKey) {
     return NextResponse.json({ error: "No API key configured" }, { status: 500 })
   }
 
+  const coords = `lat=${lat}&lon=${lon}`
+
   try {
     const [currentRes, forecastRes] = await Promise.all([
       fetch(
-        `https://api.openweathermap.org/data/2.5/weather?q=${city},${country}&appid=${apiKey}&units=metric&lang=nl`
+        `https://api.openweathermap.org/data/2.5/weather?${coords}&appid=${apiKey}&units=metric&lang=nl`
       ),
       fetch(
-        `https://api.openweathermap.org/data/2.5/forecast?q=${city},${country}&appid=${apiKey}&units=metric&lang=nl&cnt=24`
+        `https://api.openweathermap.org/data/2.5/forecast?${coords}&appid=${apiKey}&units=metric&lang=nl&cnt=24`
       ),
     ])
 
