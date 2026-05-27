@@ -26,6 +26,7 @@ export function SleepChart({ logs }: Props) {
   }
 
   const data = [...logs]
+    .filter((l) => l.duration_minutes !== null)
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-14)
     .map((l) => ({
@@ -33,8 +34,8 @@ export function SleepChart({ logs }: Props) {
         day: "numeric",
         month: "short",
       }),
-      hours: +(l.duration_minutes / 60).toFixed(1),
-      good: l.duration_minutes >= 420,
+      hours: +(l.duration_minutes! / 60).toFixed(1),
+      good: l.duration_minutes! >= 420,
     }))
 
   return (

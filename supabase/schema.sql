@@ -59,7 +59,7 @@ create table if not exists sleep_logs (
   user_id uuid references auth.users on delete cascade not null,
   date date not null default current_date,
   sleep_time time not null,
-  wake_time time not null,
+  wake_time time,
   duration_minutes smallint,
   notes text,
   created_at timestamptz default now(),

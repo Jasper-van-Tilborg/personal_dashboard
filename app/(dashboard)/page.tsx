@@ -11,7 +11,7 @@ import Link from "next/link"
 import {
   Dumbbell, CheckSquare, Moon, Clock, Scale,
   BookOpen, Calendar, Trophy, CloudSun, Music2,
-  Flame, ArrowRight, Check,
+  Flame, ArrowRight, Check, Sun,
 } from "lucide-react"
 
 interface HabitWithState extends Habit {
@@ -33,7 +33,9 @@ export default function DashboardPage() {
   const [togglingHabit, setTogglingHabit] = useState<string | null>(null)
 
   // Sleep
-  const [sleepTime, setSleepTime] = useState("23:00")
+  const [sleepMode, setSleepMode] = useState<"going_to_sleep" | "sleeping" | "complete">("going_to_sleep")
+  const [sleepIncomplete, setSleepIncomplete] = useState<{ id: string; sleep_time: string; created_at: string } | null>(null)
+  const [sleepTime, setSleepTime] = useState(new Date().toTimeString().slice(0, 5))
   const [wakeTime, setWakeTime] = useState("07:00")
   const [sleepSaving, setSleepSaving] = useState(false)
   const [sleepSaved, setSleepSaved] = useState(false)
@@ -61,11 +63,14 @@ export default function DashboardPage() {
     const todayStr = today()
     const yearStart = `${new Date().getFullYear()}-01-01`
 
-    const [habitsRes, completionsRes, sleepRes, weightRes, txRes, workoutRes, yearWorkoutRes] =
+    const cutoff = new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString()
+
+    const [habitsRes, completionsRes, sleepIncompleteRes, sleepTodayRes, weightRes, txRes, workoutRes, yearWorkoutRes] =
       await Promise.all([
         supabase.from("habits").select("*").eq("user_id", user.id).eq("is_active", true).order("created_at"),
         supabase.from("habit_completions").select("habit_id").eq("user_id", user.id).eq("completed_date", todayStr),
-        supabase.from("sleep_logs").select("sleep_time, wake_time").eq("user_id", user.id).eq("date", todayStr).single(),
+        supabase.from("sleep_logs").select("id, sleep_time, created_at").eq("user_id", user.id).is("wake_time", null).gte("created_at", cutoff).order("created_at", { ascending: false }).limit(1).single(),
+        supabase.from("sleep_logs").select("sleep_time, wake_time").eq("user_id", user.id).eq("date", todayStr).not("wake_time", "is", null).single(),
         supabase.from("weight_logs").select("weight_kg").eq("user_id", user.id).eq("date", todayStr).single(),
         supabase.from("social_media_transactions").select("minutes").eq("user_id", user.id).eq("date", todayStr),
         supabase.from("workouts").select("split_day, date").eq("user_id", user.id).order("date", { ascending: false }).limit(1),
@@ -77,9 +82,15 @@ export default function DashboardPage() {
       (habitsRes.data ?? []).map((h) => ({ ...h, completedToday: completedIds.has(h.id) }))
     )
 
-    if (sleepRes.data) {
-      setSleepTime(sleepRes.data.sleep_time.slice(0, 5))
-      setWakeTime(sleepRes.data.wake_time.slice(0, 5))
+    if (sleepIncompleteRes.data) {
+      setSleepIncomplete(sleepIncompleteRes.data)
+      setSleepMode("sleeping")
+    } else if (sleepTodayRes.data) {
+      setSleepTime(sleepTodayRes.data.sleep_time.slice(0, 5))
+      setWakeTime(sleepTodayRes.data.wake_time!.slice(0, 5))
+      setSleepMode("complete")
+    } else {
+      setSleepMode("going_to_sleep")
     }
 
     if (weightRes.data) {
@@ -129,36 +140,49 @@ export default function DashboardPage() {
     setTogglingHabit(null)
   }
 
-  async function saveSleep() {
+  async function goToSleep() {
     setSleepSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const todayStr = today()
-    const duration = calcDurationMinutes(sleepTime, wakeTime)
+    const { data } = await supabase.from("sleep_logs").insert({
+      user_id: user.id,
+      date: today(),
+      sleep_time: sleepTime,
+      wake_time: null,
+      duration_minutes: null,
+    }).select("id, sleep_time, created_at").single()
 
-    const { data: existing } = await supabase.from("sleep_logs").select("id")
-      .eq("user_id", user.id).eq("date", todayStr).single()
+    setSleepSaving(false)
+    if (data) {
+      setSleepIncomplete(data)
+      setSleepMode("sleeping")
+    }
+  }
 
-    if (existing) {
-      await supabase.from("sleep_logs")
-        .update({ sleep_time: sleepTime, wake_time: wakeTime, duration_minutes: duration })
-        .eq("id", existing.id)
-    } else {
-      await supabase.from("sleep_logs").insert({
-        user_id: user.id, date: todayStr,
-        sleep_time: sleepTime, wake_time: wakeTime, duration_minutes: duration,
+  async function wakeUp() {
+    if (!sleepIncomplete) return
+    setSleepSaving(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const wake = new Date().toTimeString().slice(0, 5)
+    const duration = calcDurationMinutes(sleepIncomplete.sleep_time.slice(0, 5), wake)
+
+    await supabase.from("sleep_logs").update({ wake_time: wake, duration_minutes: duration })
+      .eq("id", sleepIncomplete.id)
+
+    if (duration >= 420) {
+      await supabase.from("social_media_transactions").insert({
+        user_id: user.id, date: today(), source: "sleep",
+        minutes: 20, description: `Goede nacht: ${formatDuration(duration)} geslapen`,
       })
-      if (duration >= 420) {
-        await supabase.from("social_media_transactions").insert({
-          user_id: user.id, date: todayStr, source: "sleep",
-          minutes: 20, description: `Goede nacht: ${formatDuration(duration)} geslapen`,
-        })
-      }
     }
 
     setSleepSaving(false)
     setSleepSaved(true)
+    setSleepMode("complete")
+    setSleepIncomplete(null)
     setTimeout(() => setSleepSaved(false), 2000)
   }
 
@@ -178,7 +202,6 @@ export default function DashboardPage() {
     setTimeout(() => setWeightSaved(false), 2000)
   }
 
-  const sleepDuration = calcDurationMinutes(sleepTime, wakeTime)
   const completedHabits = habits.filter((h) => h.completedToday).length
 
   const quickLinks = [
@@ -282,45 +305,49 @@ export default function DashboardPage() {
       {/* Sleep + Weight row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
-        {/* Sleep quick-log */}
+        {/* Sleep widget */}
         <Card className="p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Moon size={15} className="text-blue-400" />
               <span className="text-sm font-medium text-white">Slaap</span>
             </div>
-            <div className="flex items-center gap-3">
-              <span className={`text-xs font-medium ${sleepDuration >= 420 ? "text-green-400" : "text-neutral-500"}`}>
-                {formatDuration(sleepDuration)}
-              </span>
-              <Link href="/sleep" className="text-neutral-600 hover:text-neutral-400 transition-colors">
-                <ArrowRight size={14} />
-              </Link>
-            </div>
+            <Link href="/sleep" className="text-neutral-600 hover:text-neutral-400 transition-colors">
+              <ArrowRight size={14} />
+            </Link>
           </div>
-          <div className="grid grid-cols-2 gap-2 mb-3">
-            <div>
-              <label className="block text-[10px] text-neutral-600 mb-1">Inslaaptijd</label>
-              <input
-                type="time"
-                value={sleepTime}
-                onChange={(e) => setSleepTime(e.target.value)}
-                className="w-full rounded-xl border border-white/[0.1] bg-white/[0.05] px-2 py-2.5 text-sm font-semibold text-white text-center focus:outline-none focus:ring-1 focus:ring-blue-500/40 transition-colors"
-              />
+
+          {sleepMode === "sleeping" && sleepIncomplete ? (
+            <div className="space-y-3">
+              <div className="text-center py-1">
+                <p className="text-xs text-neutral-500">Slaap gestart om {sleepIncomplete.sleep_time.slice(0, 5)}</p>
+              </div>
+              <Button onClick={wakeUp} disabled={sleepSaving} className="w-full" size="sm">
+                {sleepSaved ? <><Check size={13} /> Opgeslagen!</> : sleepSaving ? "..." : <><Sun size={13} /> Ik ben wakker</>}
+              </Button>
             </div>
-            <div>
-              <label className="block text-[10px] text-neutral-600 mb-1">Opstaatijd</label>
-              <input
-                type="time"
-                value={wakeTime}
-                onChange={(e) => setWakeTime(e.target.value)}
-                className="w-full rounded-xl border border-white/[0.1] bg-white/[0.05] px-2 py-2.5 text-sm font-semibold text-white text-center focus:outline-none focus:ring-1 focus:ring-blue-500/40 transition-colors"
-              />
+          ) : sleepMode === "complete" ? (
+            <div className="text-center py-1">
+              <p className={`text-xl font-bold ${calcDurationMinutes(sleepTime, wakeTime) >= 420 ? "text-green-400" : "text-orange-400"}`}>
+                {formatDuration(calcDurationMinutes(sleepTime, wakeTime))}
+              </p>
+              <p className="text-xs text-neutral-600 mt-0.5">{sleepTime} → {wakeTime}</p>
             </div>
-          </div>
-          <Button onClick={saveSleep} disabled={sleepSaving} className="w-full" size="sm">
-            {sleepSaved ? <><Check size={13} /> Opgeslagen!</> : sleepSaving ? "..." : "Opslaan"}
-          </Button>
+          ) : (
+            <div className="space-y-2">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] text-neutral-600">Inslaaptijd</label>
+                  <button onClick={() => setSleepTime(new Date().toTimeString().slice(0, 5))} className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors">Nu</button>
+                </div>
+                <input type="time" value={sleepTime} onChange={(e) => setSleepTime(e.target.value)}
+                  className="w-full rounded-xl border border-white/[0.1] bg-white/[0.05] px-2 py-2.5 text-sm font-semibold text-white text-center focus:outline-none focus:ring-1 focus:ring-blue-500/40 transition-colors" />
+              </div>
+              <Button onClick={goToSleep} disabled={sleepSaving} className="w-full" size="sm">
+                {sleepSaving ? "..." : <><Moon size={13} /> Ik ga slapen</>}
+              </Button>
+            </div>
+          )}
         </Card>
 
         {/* Weight quick-log */}

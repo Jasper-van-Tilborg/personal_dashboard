@@ -91,8 +91,8 @@ export interface SleepLog {
   user_id: string
   date: string
   sleep_time: string
-  wake_time: string
-  duration_minutes: number
+  wake_time: string | null
+  duration_minutes: number | null
   notes: string | null
   created_at: string
 }
