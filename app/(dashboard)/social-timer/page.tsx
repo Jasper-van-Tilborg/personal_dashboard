@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import type { SocialMediaTransaction } from "@/types/database"
 import { today, formatDuration } from "@/lib/utils"
-import { Clock, Play, Square, Dumbbell, CheckSquare, Moon, Plus } from "lucide-react"
+import { Clock, Play, Square, Dumbbell, CheckSquare, Moon, UtensilsCrossed } from "lucide-react"
 
 const TIMER_KEY = "social_timer_session"
 
@@ -66,6 +66,28 @@ export default function SocialTimerPage() {
     if (!user) return
 
     const todayStr = today()
+
+    // Credit 45 min lunch break if it's past 12:00 and not yet awarded today
+    if (new Date().getHours() >= 12) {
+      const { data: existing } = await supabase
+        .from("social_media_transactions")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("date", todayStr)
+        .eq("source", "lunch")
+        .single()
+
+      if (!existing) {
+        await supabase.from("social_media_transactions").insert({
+          user_id: user.id,
+          date: todayStr,
+          source: "lunch",
+          minutes: 45,
+          description: "Pauze (12:00)",
+        })
+      }
+    }
+
     const { data } = await supabase
       .from("social_media_transactions")
       .select("*")
@@ -126,6 +148,7 @@ export default function SocialTimerPage() {
     if (source === "workout") return <Dumbbell size={12} className="text-orange-400" />
     if (source === "habit") return <CheckSquare size={12} className="text-green-400" />
     if (source === "sleep") return <Moon size={12} className="text-blue-400" />
+    if (source === "lunch") return <UtensilsCrossed size={12} className="text-yellow-400" />
     return <Clock size={12} className="text-red-400" />
   }
 

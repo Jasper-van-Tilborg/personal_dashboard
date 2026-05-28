@@ -20,6 +20,61 @@ const BLOCK_COLORS = [
   "bg-yellow-500/20 text-yellow-300 border-yellow-500/20",
 ]
 
+const DEFAULT_WEEK: Record<number, TimeBlock[]> = (() => {
+  const [O, B, G, P, K, Y] = BLOCK_COLORS
+
+  const ochtend: TimeBlock[] = [
+    { time: "07:15", activity: "Wakker + douche", color: B },
+    { time: "07:25", activity: "Ontbijt (~900 kcal)", color: G },
+    { time: "08:15", activity: "Vertrek", color: Y },
+  ]
+  const avond: TimeBlock[] = [
+    { time: "16:00", activity: "Thuis + omkleden", color: Y },
+    { time: "16:30", activity: "Gym", color: O },
+    { time: "18:00", activity: "Avondeten (~1000 kcal)", color: G },
+    { time: "18:30", activity: "Side projects / vrij", color: K },
+  ]
+  const slaap: TimeBlock = { time: "23:30", activity: "Slapen", color: B }
+
+  const schooldag: TimeBlock[] = [
+    ...ochtend,
+    { time: "09:15", activity: "School – portfolio", color: P },
+    ...avond,
+    { time: "22:30", activity: "Wind down", color: B },
+    slaap,
+  ]
+
+  return {
+    1: schooldag, // Maandag (standaard, voetbal optioneel handmatig toevoegen)
+    2: schooldag, // Dinsdag
+    3: schooldag, // Woensdag
+    4: [ // Donderdag – vroeg uit school + voetbal
+      ...ochtend,
+      { time: "09:15", activity: "School – portfolio", color: P },
+      { time: "12:00", activity: "Lunch thuis (~1100 kcal)", color: G },
+      { time: "13:30", activity: "Side projects / portfolio", color: K },
+      { time: "16:30", activity: "Gym", color: O },
+      { time: "18:00", activity: "Avondeten (~1000 kcal)", color: G },
+      { time: "18:30", activity: "Vrij", color: K },
+      { time: "20:30", activity: "Voetbal", color: O },
+      { time: "22:00", activity: "Snack + wind down (~400 kcal)", color: B },
+      slaap,
+    ],
+    5: [ // Vrijdag – werk
+      { time: "09:00", activity: "Werk (wisselende tijden)", color: P },
+      { time: "19:00", activity: "Vrij", color: K },
+    ],
+    6: [ // Zaterdag – hersteldag
+      { time: "10:00", activity: "Hersteldag / vrij", color: K },
+    ],
+    0: [ // Zondag – werk + week voorbereiden
+      { time: "09:00", activity: "Werk (wisselende tijden)", color: P },
+      { time: "19:00", activity: "Week voorbereiden", color: Y },
+      slaap,
+    ],
+  }
+})()
+
 export default function WeekschemaPage() {
   const [schedule, setSchedule] = useState<Record<number, WeekScheduleDay>>({})
   const [loading, setLoading] = useState(true)
@@ -74,6 +129,25 @@ export default function WeekschemaPage() {
     loadSchedule()
   }
 
+  async function seedSchedule() {
+    setSaving(true)
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+    if (!user) return
+
+    const rows = Object.entries(DEFAULT_WEEK).map(([dow, blocks]) => ({
+      user_id: user.id,
+      day_of_week: Number(dow),
+      time_blocks: blocks,
+      updated_at: new Date().toISOString(),
+    }))
+
+    await supabase.from("week_schedule").upsert(rows, { onConflict: "user_id,day_of_week" })
+    setSaving(false)
+    loadSchedule()
+  }
+
   function addBlock(dow: number) {
     if (!newBlock.time || !newBlock.activity) return
     const current = schedule[dow]?.time_blocks ?? []
@@ -102,6 +176,12 @@ export default function WeekschemaPage() {
           </h1>
           <p className="text-neutral-500 text-xs mt-0.5">Jouw standaard weekritme</p>
         </div>
+        <div className="flex items-center gap-2">
+          {!loading && Object.keys(schedule).length === 0 && (
+            <Button size="sm" variant="outline" onClick={seedSchedule} disabled={saving}>
+              Weekritme laden
+            </Button>
+          )}
         <Button
           variant={editMode ? "outline" : "ghost"}
           size="sm"
@@ -120,6 +200,7 @@ export default function WeekschemaPage() {
             </>
           )}
         </Button>
+        </div>
       </div>
 
       {loading ? (

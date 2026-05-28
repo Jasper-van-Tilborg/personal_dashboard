@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import type { WeightLog } from "@/types/database"
 import { today, formatDate } from "@/lib/utils"
-import { Scale, Plus, TrendingUp, TrendingDown, Minus } from "lucide-react"
+import { Scale, Plus, TrendingUp, TrendingDown, Minus, Pencil, X } from "lucide-react"
 import {
   LineChart,
   Line,
@@ -21,8 +21,11 @@ import {
 export default function WeightPage() {
   const [logs, setLogs] = useState<WeightLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [statsFilter, setStatsFilter] = useState<"met" | "zonder">("zonder")
   const [date, setDate] = useState(today())
   const [weight, setWeight] = useState("")
+  const [withClothes, setWithClothes] = useState(true)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const supabase = createClient()
@@ -44,12 +47,36 @@ export default function WeightPage() {
       .order("date", { ascending: false })
       .limit(60)
 
-    setLogs(data ?? [])
+    const loaded = data ?? []
+    setLogs(loaded)
 
-    const todayEntry = (data ?? []).find((l) => l.date === today())
-    if (todayEntry) setWeight(String(todayEntry.weight_kg))
+    const todayEntry = loaded.find((l) => l.date === today())
+    if (todayEntry) {
+      setWeight(String(todayEntry.weight_kg))
+      if (todayEntry.with_clothes !== null) setWithClothes(todayEntry.with_clothes)
+    }
+
+    // Default filter to type of most recent entry that has with_clothes set
+    const mostRecent = loaded.find((l) => l.with_clothes !== null)
+    if (mostRecent) setStatsFilter(mostRecent.with_clothes ? "met" : "zonder")
 
     setLoading(false)
+  }
+
+  function selectLog(l: WeightLog) {
+    setEditingId(l.id)
+    setDate(l.date)
+    setWeight(String(l.weight_kg))
+    setWithClothes(l.with_clothes ?? true)
+    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" })
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setDate(today())
+    const todayEntry = logs.find((l) => l.date === today())
+    setWeight(todayEntry ? String(todayEntry.weight_kg) : "")
+    setWithClothes(todayEntry?.with_clothes ?? true)
   }
 
   async function saveWeight() {
@@ -65,15 +92,21 @@ export default function WeightPage() {
         user_id: user.id,
         date,
         weight_kg: Number(weight),
+        with_clothes: withClothes,
       },
       { onConflict: "user_id,date" }
     )
 
     setSaving(false)
+    setEditingId(null)
     loadLogs()
   }
 
-  const chartData = [...logs]
+  const filteredLogs = logs.filter((l) =>
+    l.with_clothes === null ? false : l.with_clothes === (statsFilter === "met")
+  )
+
+  const chartData = [...filteredLogs]
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-30)
     .map((l) => ({
@@ -84,13 +117,13 @@ export default function WeightPage() {
       weight: Number(l.weight_kg),
     }))
 
-  const latest = logs[0]?.weight_kg
-  const prev = logs[1]?.weight_kg
+  const latest = filteredLogs[0]?.weight_kg
+  const prev = filteredLogs[1]?.weight_kg
   const diff = latest && prev ? Number(latest) - Number(prev) : null
   const monthAvg =
-    logs.slice(0, 30).length > 0
-      ? logs.slice(0, 30).reduce((s, l) => s + Number(l.weight_kg), 0) /
-        Math.min(30, logs.length)
+    filteredLogs.slice(0, 30).length > 0
+      ? filteredLogs.slice(0, 30).reduce((s, l) => s + Number(l.weight_kg), 0) /
+        Math.min(30, filteredLogs.length)
       : null
 
   return (
@@ -102,8 +135,34 @@ export default function WeightPage() {
         <p className="text-neutral-500 text-xs mt-0.5">Bulk doel: 3549 kcal/dag</p>
       </div>
 
+      {/* Filter toggle */}
+      {!loading && logs.some((l) => l.with_clothes !== null) && (
+        <div className="flex rounded-lg overflow-hidden border border-white/[0.08] mb-4">
+          <button
+            onClick={() => setStatsFilter("zonder")}
+            className={`flex-1 py-1.5 text-xs font-medium transition-colors ${
+              statsFilter === "zonder"
+                ? "bg-white/10 text-white"
+                : "text-neutral-500 hover:text-neutral-300"
+            }`}
+          >
+            Zonder kleren
+          </button>
+          <button
+            onClick={() => setStatsFilter("met")}
+            className={`flex-1 py-1.5 text-xs font-medium transition-colors ${
+              statsFilter === "met"
+                ? "bg-white/10 text-white"
+                : "text-neutral-500 hover:text-neutral-300"
+            }`}
+          >
+            Met kleren
+          </button>
+        </div>
+      )}
+
       {/* Stats */}
-      {!loading && logs.length > 0 && (
+      {!loading && filteredLogs.length > 0 && (
         <div className="grid grid-cols-3 gap-3 mb-5">
           <Card className="p-4">
             <div className="text-xs text-neutral-500 mb-1">Huidig</div>
@@ -151,7 +210,7 @@ export default function WeightPage() {
       )}
 
       {/* Chart */}
-      {!loading && chartData.length >= 2 && (
+      {!loading && filteredLogs.length > 0 && chartData.length >= 2 && (
         <Card className="mb-5 p-4">
           <div className="text-xs text-neutral-500 mb-3">Verloop (30 dagen)</div>
           <ResponsiveContainer width="100%" height={160}>
@@ -195,7 +254,17 @@ export default function WeightPage() {
       {/* Log form */}
       <Card>
         <CardHeader>
-          <CardTitle>Gewicht loggen</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>{editingId ? "Aanpassen" : "Gewicht loggen"}</CardTitle>
+            {editingId && (
+              <button
+                onClick={cancelEdit}
+                className="text-neutral-500 hover:text-neutral-300 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
@@ -219,12 +288,39 @@ export default function WeightPage() {
               />
             </div>
           </div>
+          <div>
+            <label className="block text-xs text-neutral-400 mb-1.5">Kleding</label>
+            <div className="flex rounded-lg overflow-hidden border border-white/[0.08]">
+              <button
+                type="button"
+                onClick={() => setWithClothes(false)}
+                className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                  !withClothes
+                    ? "bg-white/10 text-white"
+                    : "text-neutral-500 hover:text-neutral-300"
+                }`}
+              >
+                Zonder kleren
+              </button>
+              <button
+                type="button"
+                onClick={() => setWithClothes(true)}
+                className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                  withClothes
+                    ? "bg-white/10 text-white"
+                    : "text-neutral-500 hover:text-neutral-300"
+                }`}
+              >
+                Met kleren
+              </button>
+            </div>
+          </div>
           <Button
             onClick={saveWeight}
             disabled={saving || !weight}
             className="w-full"
           >
-            {saving ? "Opslaan..." : <><Plus size={14} /> Opslaan</>}
+            {saving ? "Opslaan..." : editingId ? <><Pencil size={14} /> Aanpassen</> : <><Plus size={14} /> Opslaan</>}
           </Button>
         </CardContent>
       </Card>
@@ -236,14 +332,27 @@ export default function WeightPage() {
             Recente logs
           </h2>
           <div className="space-y-1.5">
-            {logs.slice(0, 7).map((l) => (
-              <div
+            {logs.map((l) => (
+              <button
                 key={l.id}
-                className="flex items-center justify-between rounded-xl bg-white/[0.02] border border-white/[0.05] px-4 py-2.5"
+                onClick={() => selectLog(l)}
+                className={`w-full flex items-center justify-between rounded-xl border px-4 py-2.5 transition-colors text-left group ${
+                  editingId === l.id
+                    ? "bg-white/[0.06] border-white/[0.15]"
+                    : "bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.05] hover:border-white/[0.10]"
+                }`}
               >
                 <span className="text-xs text-neutral-500">{formatDate(l.date)}</span>
-                <span className="text-sm font-medium text-white">{l.weight_kg} kg</span>
-              </div>
+                <div className="flex items-center gap-2">
+                  {l.with_clothes !== null && (
+                    <span className="text-xs text-neutral-600">
+                      {l.with_clothes ? "met kleren" : "zonder"}
+                    </span>
+                  )}
+                  <span className="text-sm font-medium text-white">{l.weight_kg} kg</span>
+                  <Pencil size={11} className="text-neutral-700 group-hover:text-neutral-500 transition-colors" />
+                </div>
+              </button>
             ))}
           </div>
         </div>

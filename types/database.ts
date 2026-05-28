@@ -102,6 +102,7 @@ export interface WeightLog {
   user_id: string
   date: string
   weight_kg: number
+  with_clothes: boolean | null
   created_at: string
 }
 
@@ -128,7 +129,7 @@ export interface WeekScheduleDay {
   updated_at: string
 }
 
-export type TransactionSource = "workout" | "habit" | "sleep" | "timer_used"
+export type TransactionSource = "workout" | "habit" | "sleep" | "timer_used" | "lunch"
 
 export interface SocialMediaTransaction {
   id: string

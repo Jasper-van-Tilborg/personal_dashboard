@@ -174,7 +174,7 @@ export function WorkoutForm({ onSaved, onCancel, editWorkout }: Props) {
           date,
           split_day: splitDay,
           notes: notes || null,
-          social_media_minutes_earned: 45,
+          social_media_minutes_earned: 60,
         })
         .select()
         .single()
@@ -199,7 +199,7 @@ export function WorkoutForm({ onSaved, onCancel, editWorkout }: Props) {
         date,
         source: "workout",
         source_ref_id: workout.id,
-        minutes: 45,
+        minutes: 60,
         description: `Workout: ${SPLIT_LABELS[splitDay]}`,
       })
     }

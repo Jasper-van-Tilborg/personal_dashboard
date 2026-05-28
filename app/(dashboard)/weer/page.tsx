@@ -75,7 +75,7 @@ export default function WeerPage() {
           <p className="text-neutral-500 text-xs mt-0.5">
             {lastUpdated
               ? `Bijgewerkt om ${lastUpdated.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit" })}`
-              : "Tilburg, NL"}
+              : "Gilze, NL"}
           </p>
         </div>
         <Button variant="ghost" size="icon" onClick={fetchWeather} disabled={loading}>
